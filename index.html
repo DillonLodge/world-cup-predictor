@@ -55,19 +55,16 @@ input.name { width:100%; min-height:42px; border:1px solid #d1d5db; border-radiu
 <body>
 <header>
   <h1>2026 World Cup Predictor</h1>
-  <p>Phone-friendly version of the spreadsheet. Fill in scores, pick knockout winners, export your entry.</p>
+  <p>Phone-friendly version of the spreadsheet. Fill in scores, pick knockout winners, then send your completed prediction sheet.</p>
 </header>
 <main>
 <section class="card">
   <h2>Your details</h2>
   <input id="playerName" class="name" placeholder="Enter your name" />
   <div class="actions">
-    <button onclick="exportCSV()">Download CSV entry</button>
-    <button onclick="copySummary()" class="secondary">Copy summary</button>
-    <button onclick="saveNow()" class="secondary">Save on this phone</button>
-    <button onclick="resetAll()" class="danger">Reset</button>
+    <button onclick="sendPredictionSheet()">Send prediction sheet</button>
   </div>
-  <p class="small">This saves automatically on the phone/browser. For a proper group competition, collect the downloaded CSVs or copy/pasted summaries.</p>
+  <p class="small">This saves automatically on the phone/browser. The button creates the exact-row CSV using the filename <b>world cup predications - your name.csv</b>, then opens the phone share menu where available.</p>
 </section>
 <section class="card notice">
   <strong>How it works:</strong> enter the group-stage scores first. The standings and third-place qualifiers update automatically. Then the knockout dropdowns unlock round by round, including the 3rd place play-off and final.
@@ -186,6 +183,230 @@ function exportRows(){ const rows=[]; rows.push(['Name',state.name||'']); DATA.g
 function csvEscape(v){ return '"'+String(v??'').replaceAll('"','""')+'"'; }
 function exportCSV(){ saveNow(); const csv=exportRows().map(r=>r.map(csvEscape).join(',')).join('\n'); const blob=new Blob([csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=(state.name||'world-cup-predictor').replace(/[^a-z0-9]+/gi,'_')+'.csv'; a.click(); URL.revokeObjectURL(a.href); }
 function copySummary(){ saveNow(); const lines=exportRows().map(r=>r.join(' | ')).join('\n'); navigator.clipboard.writeText(lines).then(()=>alert('Summary copied. Paste it into the chat/group.')); }
+
+function esc(v){ return String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+function scoreText(g,idx){ const s=state.scores[scoreKey(g,idx)]||{}; return `${s.h ?? ''} - ${s.a ?? ''}`; }
+function knockoutExportData(){
+  const standings=allStandings();
+  const thirds=thirdPlaced(standings);
+  const key=thirds.filter(x=>x.qualified).map(x=>x.group).sort().join('');
+  const map=DATA.thirdPlaceMap[key]||{};
+  const teamsByMatch={};
+  const sections=[];
+  const r32=[];
+  fixedR32.forEach(([code,a,b])=>{ const t1=tokenTeam(a,standings,map), t2=tokenTeam(b,standings,map); const w=validPick(code,t1,t2); teamsByMatch[code]={t1,t2,w}; r32.push({code,t1,t2,w}); });
+  sections.push({title:'ROUND OF 32', rows:r32});
+  Object.entries(nextRounds).forEach(([title, defs])=>{ const rows=[]; defs.forEach(([code,a,b])=>{ const t1=teamsByMatch[a]?.w||'', t2=teamsByMatch[b]?.w||''; const w=validPick(code,t1,t2); teamsByMatch[code]={t1,t2,w}; rows.push({code,t1,t2,w}); }); sections.push({title:title.toUpperCase(), rows}); });
+  const sf1=teamsByMatch['SF1']||{}, sf2=teamsByMatch['SF2']||{};
+  const loser1=sf1.w ? (sf1.w===sf1.t1 ? sf1.t2 : sf1.t1) : '';
+  const loser2=sf2.w ? (sf2.w===sf2.t1 ? sf2.t2 : sf2.t1) : '';
+  const final1=sf1.w||'', final2=sf2.w||'';
+  sections.push({title:'3RD PLACE PLAY OFF', rows:[{code:'3PP', t1:loser1, t2:loser2, w:validPick('3PP',loser1,loser2)}]});
+  sections.push({title:'FINAL', rows:[{code:'FINAL', t1:final1, t2:final2, w:validPick('FINAL',final1,final2)}]});
+  return {standings, thirds, sections, champion:validPick('FINAL',final1,final2), thirdPlace:validPick('3PP',loser1,loser2), final1, final2, loser1, loser2};
+}
+function buildPredictionSheetHTML(){
+  saveNow();
+  const data=knockoutExportData();
+  const player=state.name || 'Unnamed player';
+  const now=new Date().toLocaleString();
+  function td(v='', cls='', colspan=1){ return '<td'+(cls?' class="'+cls+'"':'')+(colspan>1?' colspan="'+colspan+'"':'')+'>'+esc(v)+'</td>'; }
+  function tr(cells, cls=''){
+    let html='<tr'+(cls?' class="'+cls+'"':'')+'>';
+    let used=0;
+    cells.forEach(c=>{ const cs=c.cs||1; html += td(c.v||'', c.cls||'', cs); used += cs; });
+    while(used<11){ html += td('', 'blank'); used++; }
+    return html+'</tr>';
+  }
+  function scoreParts(g,idx){ const s=state.scores[scoreKey(g,idx)]||{}; return {h:s.h??'', a:s.a??''}; }
+  const rows=[];
+  rows.push(tr([{v:'2026 WORLD CUP PREDICTOR',cls:'title',cs:11}]));
+  rows.push(tr([{v:'Enter group-stage scores in the yellow cells. Group tables update automatically.',cls:'subhead',cs:11}]));
+  rows.push(tr([{v:'Knockout rounds fill automatically from group winners, runners-up and the best third-placed teams.',cls:'subhead',cs:11}]));
+  rows.push(tr([{v:'For knockout rounds, pick the winner from the dropdown in the Winner column.',cls:'subhead',cs:11}]));
+  rows.push(tr([{v:'NAME',cls:'label'},{v:player,cls:'yellow strong',cs:2},{v:'Scores for group stages 1 point for correct team score and 3 bonus points for correct match score.',cls:'note',cs:7},{v:''}]));
+
+  DATA.groups.forEach((g,gi)=>{
+    const r0 = 6 + gi*10;
+    rows.push(tr([{v:'GROUP '+g.name, cls:'section blue', cs:4},{v:''},{v:'STANDINGS', cls:'section blue', cs:5},{v:''}]));
+    rows.push(tr([{v:'Home',cls:'hdr'},{v:'HG',cls:'hdr'},{v:'AG',cls:'hdr'},{v:'Away',cls:'hdr'},{v:''},{v:'Team',cls:'hdr'},{v:'Pts',cls:'hdr'},{v:'GD',cls:'hdr'},{v:'GF',cls:'hdr'},{v:'Rank',cls:'hdr'},{v:''}]));
+    for(let i=0;i<6;i++){
+      const m=g.matches[i]; const sc=scoreParts(g.name,i); const st=data.standings[g.name][i];
+      rows.push(tr([
+        {v:m.home, cls:'right'}, {v:sc.h, cls:'yellow'}, {v:sc.a, cls:'yellow'}, {v:m.away, cls:'left'}, {v:''},
+        {v:st?st.team:'', cls:'left'}, {v:st?st.pts:''}, {v:st?st.gd:''}, {v:st?st.gf:''}, {v:st?i+1:''}, {v:''}
+      ]));
+    }
+    rows.push(tr([]));
+    rows.push(tr([]));
+  });
+
+  rows.push(tr([{v:'BEST THIRD PLACED TEAMS',cls:'section green',cs:6}]));
+  rows.push(tr([{v:'Group',cls:'hdr'},{v:'Team',cls:'hdr'},{v:'Pts',cls:'hdr'},{v:'GD',cls:'hdr'},{v:'GF',cls:'hdr'},{v:'Qualified',cls:'hdr'}]));
+  data.thirds.forEach(r=>rows.push(tr([{v:r.group},{v:r.team,cls:'left'},{v:r.pts},{v:r.gd},{v:r.gf},{v:r.qualified?'Yes':'No',cls:r.qualified?'greenText':'redText'}])));
+  rows.push(tr([]));
+
+  const sections = data.sections;
+  const sourceMap = {
+    'M17':['Winner M3','Winner M4'], 'M18':['Winner M1','Winner M2'], 'M19':['Winner M11','Winner M6'], 'M20':['Winner M7','Winner M8'],
+    'M21':['Winner M9','Winner M5'], 'M22':['Winner M10','Winner M12'], 'M23':['Winner M13','Winner M14'], 'M24':['Winner M15','Winner M16'],
+    'QF1':['Winner M17','Winner M18'], 'QF2':['Winner M19','Winner M20'], 'QF3':['Winner M21','Winner M22'], 'QF4':['Winner M23','Winner M24'],
+    'SF1':['Winner QF1','Winner QF2'], 'SF2':['Winner QF3','Winner QF4'], '3PP':['Loser SF1','Loser SF2'], 'FINAL':['Winner SF1','Winner SF2']
+  };
+  const firstRoundSources = {
+    'M1':['Winner E','Best 3rd'], 'M2':['Winner I','Best 3rd'], 'M3':['Runner-up A','Runner-up B'], 'M4':['Winner F','Runner-up C'],
+    'M5':['Runner-up E','Runner-up I'], 'M6':['Winner H','Runner-up J'], 'M7':['Winner D','Best 3rd'], 'M8':['Winner G','Best 3rd'],
+    'M9':['Winner C','Runner-up F'], 'M10':['Winner A','Best 3rd'], 'M11':['Runner-up K','Runner-up L'], 'M12':['Winner L','Best 3rd'],
+    'M13':['Winner J','Runner-up H'], 'M14':['Runner-up D','Runner-up G'], 'M15':['Winner B','Best 3rd'], 'M16':['Winner K','Best 3rd']
+  };
+  sections.forEach(sec=>{
+    let cls='section green';
+    let title=sec.title;
+    if(title==='ROUND OF 32') title='ROUND OF 32 - 5 points for correct team prediction, 5 bonus point for correct match predicition';
+    if(title==='ROUND OF 16') title='ROUND OF 16 - 10 points for correct team prediction, 10 bonus point for correct match predicition';
+    if(title==='QUARTER-FINALS') title='QUARTER-FINALS - 15 points for correct team prediction, 15 bonus point for correct match predicition';
+    if(title==='SEMI-FINALS') title='SEMI-FINALS - 20 points for correct team prediction, 20 bonus point for correct match predicition';
+    if(title==='3RD PLACE PLAY OFF') title='3rd PLACE PLAY OFF - 25 points for correct team prediction, 25 bonus point for correct match predicition';
+    if(title==='FINAL') title='FINAL - 25 points for correct team prediction, 25 bonus point for correct match predicition';
+    rows.push(tr([{v:title, cls, cs:11}]));
+    rows.push(tr([{v:'Match',cls:'hdr'},{v:'Team 1',cls:'hdr',cs:3},{v:'Team 2',cls:'hdr'},{v:'Pick winner',cls:'hdr'},{v:'From',cls:'hdr'},{v:'From',cls:'hdr'},{v:'Allowed thirds',cls:'hdr'},{v:'Assigned 3rd group',cls:'hdr'},{v:'Notes',cls:'hdr'}]));
+    sec.rows.forEach(r=>{
+      const src = sourceMap[r.code] || firstRoundSources[r.code] || ['',''];
+      rows.push(tr([{v:r.code},{v:r.t1||'',cls:'left',cs:3},{v:r.t2||'',cls:'left'},{v:r.w||'',cls:'yellow strong'},{v:src[0]},{v:src[1]},{v:''},{v:''},{v:''}]));
+    });
+    rows.push(tr([]));
+  });
+  rows.push(tr([{v:'30 Points for winner predicition - 30 points for 3rd place predicition',cls:'section green',cs:11}]));
+  rows.push(tr([{v:'CHAMPION',cls:'finalHdr',cs:4},{v:'3RD PLACE',cls:'finalHdr',cs:4},{v:'',cs:3}]));
+  rows.push(tr([{v:data.champion||'',cls:'yellow strong finalCell',cs:4},{v:data.thirdPlace||'',cls:'yellow strong finalCell',cs:4},{v:'',cs:3}]));
+
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>'+esc(player)+' - World Cup Prediction Sheet</title><style>'+ 
+  'body{font-family:Calibri,Arial,sans-serif;margin:0;background:#f4f4f4;color:#111;font-size:11pt}.controls{position:sticky;top:0;background:#111827;color:#fff;padding:10px;text-align:center;z-index:5}.controls button{padding:10px 14px;border:0;border-radius:6px;font-weight:bold;cursor:pointer}.wrap{max-width:1180px;margin:16px auto;background:#fff;padding:14px;box-shadow:0 4px 18px #0002}.exportMeta{font-size:10pt;margin:0 0 8px 0;color:#555}.sheet{border-collapse:collapse;table-layout:fixed;width:100%;background:white}.sheet col:nth-child(1){width:13%}.sheet col:nth-child(2){width:13%}.sheet col:nth-child(3){width:7%}.sheet col:nth-child(4){width:13%}.sheet col:nth-child(5){width:13%}.sheet col:nth-child(6){width:11%}.sheet col:nth-child(7){width:8%}.sheet col:nth-child(8){width:8%}.sheet col:nth-child(9){width:8%}.sheet col:nth-child(10){width:10%}.sheet col:nth-child(11){width:16%}.sheet td{border:1px solid #b7b7b7;height:20px;padding:3px 5px;text-align:center;vertical-align:middle;overflow:hidden;white-space:nowrap}.title{background:#f4f4f4!important;color:#c00000;font-size:20pt;font-weight:700;height:30px}.subhead{background:#f4f4f4!important;color:#c00000;font-size:13pt;font-weight:700;height:28px}.note{font-weight:700;text-align:center!important}.label{font-weight:700;text-align:left!important}.section{font-weight:700;text-align:center!important}.blue{background:#d9eaf7!important}.green{background:#d9ead3!important}.hdr{background:#ededed!important;font-weight:700}.yellow{background:#fff2cc!important}.strong{font-weight:700}.left{text-align:left!important}.right{text-align:right!important}.blank{background:white}.greenText{color:#008000;font-weight:700}.redText{color:#c00000;font-weight:700}.finalHdr{background:#fce4d6!important;font-weight:700}.finalCell{font-size:12pt;height:24px}.printnote{font-size:10pt;color:#555;margin-top:10px}@media print{body{background:white}.controls{display:none}.wrap{margin:0;box-shadow:none;max-width:none;padding:0}.sheet td{height:18px;font-size:9pt}.title{font-size:16pt}.subhead{font-size:10pt}@page{size:landscape;margin:8mm}}@media(max-width:760px){.wrap{margin:0;padding:8px}.sheet{font-size:9pt}.sheet td{padding:2px;white-space:normal}.title{font-size:16pt}.subhead{font-size:10pt}}' +
+  '</style></head><body><div class="controls"><button onclick="window.print()">Print / save as PDF</button></div><div class="wrap"><p class="exportMeta">Filled prediction sheet for <b>'+esc(player)+'</b> &nbsp; | &nbsp; Exported: '+esc(now)+'</p><table class="sheet"><colgroup><col><col><col><col><col><col><col><col><col><col><col></colgroup><tbody>'+rows.join('')+'</tbody></table><p class="printnote">This export is styled to match the Predictor sheet layout. Use Print / Save as PDF to send a PDF copy.</p></div></body></html>';
+}
+function openPredictionSheet(){ const html=buildPredictionSheetHTML(); const w=window.open('','_blank'); if(!w){ alert('Popup blocked. Use Download filled prediction sheet instead.'); return; } w.document.open(); w.document.write(html); w.document.close(); }
+function buildExactPredictorCSV(){
+  saveNow();
+  const data=knockoutExportData();
+  const rows=Array.from({length:194},()=>Array(8).fill(''));
+  const put=(r,c,v)=>{ rows[r-1][c-1]=v ?? ''; };
+  const putRow=(r,vals)=>{ vals.forEach((v,i)=>put(r,i+1,v)); };
+
+  putRow(1,['2026 WORLD CUP PREDICTOR']);
+  putRow(2,['Enter group-stage scores in the yellow cells. Group tables update automatically.']);
+  putRow(3,['Knockout rounds fill automatically from group winners, runners-up and the best third-placed teams.']);
+  putRow(4,['For knockout rounds, pick the winner from the dropdown in the Winner column.']);
+  putRow(5,['NAME', state.name || '', '', 'Scores for group stages 1 point for correct team score and 3 bonus points for correct match score.']);
+
+  DATA.groups.forEach((g,gi)=>{
+    const base=6 + gi*10;
+    putRow(base,[`GROUP ${g.name}`,'','','','','STANDINGS']);
+    putRow(base+1,['Home','HG','AG','Away','','Team','Pts','GD']);
+    for(let i=0;i<6;i++){
+      const m=g.matches[i];
+      const sc=state.scores[scoreKey(g.name,i)]||{};
+      const st=data.standings[g.name][i];
+      putRow(base+2+i,[m.home, sc.h ?? '', sc.a ?? '', m.away, '', st?st.team:'', st?st.pts:'', st?st.gd:'']);
+    }
+  });
+
+  putRow(127,['BEST THIRD-PLACED TEAMS','','','','','','','3rd-place combo keys']);
+  putRow(128,['Group','Team','Pts','GD','GF','Qualified?','','ComboKey']);
+  data.thirds.forEach((t,i)=>{
+    putRow(129+i,[t.group,t.team,t.pts,t.gd,t.gf,t.qualified?'Yes':'No','',i===0?'ComboKeyComma':'']);
+  });
+
+  const byCode={};
+  data.sections.forEach(sec=>sec.rows.forEach(r=>{ byCode[r.code]=r; }));
+  const firstRoundSources = {
+    'M1':['Winner E','Best 3rd'], 'M2':['Winner I','Best 3rd'], 'M3':['Runner-up A','Runner-up B'], 'M4':['Winner F','Runner-up C'],
+    'M5':['Runner-up E','Runner-up I'], 'M6':['Winner H','Runner-up J'], 'M7':['Winner D','Best 3rd'], 'M8':['Winner G','Best 3rd'],
+    'M9':['Winner C','Runner-up F'], 'M10':['Winner A','Best 3rd'], 'M11':['Runner-up K','Runner-up L'], 'M12':['Winner L','Best 3rd'],
+    'M13':['Winner J','Runner-up H'], 'M14':['Runner-up D','Runner-up G'], 'M15':['Winner B','Best 3rd'], 'M16':['Winner K','Best 3rd']
+  };
+  const sourceMap = {
+    'M17':['Winner M3','Winner M4'], 'M18':['Winner M1','Winner M2'], 'M19':['Winner M11','Winner M6'], 'M20':['Winner M7','Winner M8'],
+    'M21':['Winner M9','Winner M5'], 'M22':['Winner M10','Winner M12'], 'M23':['Winner M13','Winner M14'], 'M24':['Winner M15','Winner M16'],
+    'QF1':['Winner M17','Winner M18'], 'QF2':['Winner M19','Winner M20'], 'QF3':['Winner M21','Winner M22'], 'QF4':['Winner M23','Winner M24'],
+    'SF1':['Winner QF1','Winner QF2'], 'SF2':['Winner QF3','Winner QF4'], '3PP':['Loser SF1','Loser SF2'], 'FINAL':['Winner SF1','Winner SF2']
+  };
+  function koRow(rowNo, code, src){
+    const r=byCode[code]||{};
+    putRow(rowNo,[code, r.t1||'', '', '', r.t2||'', r.w||'', src?.[0]||'', src?.[1]||'']);
+  }
+  putRow(143,['ROUND OF 32 - 5 points for correct team prediction, 5 bonus point for correct match predicition']);
+  putRow(144,['Match','Team 1','','','Team 2','Pick winner','Source 1','Source 2']);
+  for(let i=1;i<=16;i++){ koRow(144+i, 'M'+i, firstRoundSources['M'+i]); }
+
+  putRow(162,['ROUND OF 16 - 10 points for correct team prediction, 10 bonus point for correct match predicition']);
+  putRow(163,['Match','Team 1','','','Team 2','Pick winner','From','From']);
+  for(let i=17;i<=24;i++){ koRow(147+i, 'M'+i, sourceMap['M'+i]); }
+
+  putRow(173,['QUARTER-FINALS - 15 points for correct team prediction, 15 bonus point for correct match predicition']);
+  putRow(174,['Match','Team 1','','','Team 2','Pick winner','From','From']);
+  ['QF1','QF2','QF3','QF4'].forEach((code,i)=>koRow(175+i, code, sourceMap[code]));
+
+  putRow(180,['SEMI-FINALS - 20 points for correct team prediction, 20 bonus point for correct match predicition']);
+  putRow(181,['Match','Team 1','','','Team 2','Pick winner','From','From']);
+  ['SF1','SF2'].forEach((code,i)=>koRow(182+i, code, sourceMap[code]));
+
+  putRow(185,['3rd PLACE PLAY OFF - 25 points for correct team prediction, 25 bonus point for correct match predicition']);
+  putRow(186,['Match','Team 1','','','Team 2','Pick winner','From','From']);
+  koRow(187,'3PP',sourceMap['3PP']);
+
+  putRow(189,['FINAL - 25 points for correct team prediction, 25 bonus point for correct match predicition']);
+  putRow(190,['Match','Team 1','','','Team 2','Pick winner','From','From']);
+  koRow(191,'FINAL',sourceMap['FINAL']);
+  putRow(192,['30 Points for winner predicition - 30 points for 3rd place predicition']);
+  putRow(193,['CHAMPION','','','','3RD PLACE']);
+  putRow(194,[data.champion||'','','','',data.thirdPlace||'']);
+
+  return rows.map(r=>r.map(csvEscape).join(',')).join('\n');
+}
+function predictionFileName(){
+  const person=(state.name||document.getElementById('playerName').value||'unnamed').trim() || 'unnamed';
+  const cleanPerson=person.replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim();
+  return 'world cup predications - '+cleanPerson+'.csv';
+}
+function fallbackDownloadPredictionSheet(blob, filename){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+async function sendPredictionSheet(){
+  saveNow();
+  if(!(state.name||'').trim()){
+    alert('Please enter your name first so the file can be named correctly.');
+    document.getElementById('playerName').focus();
+    return;
+  }
+  const csv=buildExactPredictorCSV();
+  const filename=predictionFileName();
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const file=new File([blob], filename, {type:'text/csv'});
+
+  if(navigator.canShare && navigator.canShare({files:[file]}) && navigator.share){
+    try {
+      await navigator.share({
+        title: 'World Cup predications',
+        text: 'Completed World Cup prediction sheet attached.',
+        files: [file]
+      });
+      return;
+    } catch(err) {
+      if(err && err.name === 'AbortError') return;
+    }
+  }
+
+  fallbackDownloadPredictionSheet(blob, filename);
+  alert('Your CSV has downloaded. Open WhatsApp, choose Sean, and attach the downloaded file.');
+}
+function downloadPredictionSheet(){ sendPredictionSheet(); }
+
 document.getElementById('playerName').addEventListener('input', saveNow);
 load(); renderGroups(); recalc();
 </script>
