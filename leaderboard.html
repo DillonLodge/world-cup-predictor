@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>World Cup Predictor Leaderboard</title>
+  <style>
+    :root {
+      --bg: #07111f;
+      --card: #0f1f35;
+      --card2: #132942;
+      --text: #f5f7fb;
+      --muted: #aab7ca;
+      --gold: #f6c453;
+      --silver: #c9d1d9;
+      --bronze: #c47f45;
+      --line: rgba(255,255,255,0.11);
+      --accent: #36c2ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, Helvetica, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(54, 194, 255, 0.18), transparent 34%),
+        radial-gradient(circle at bottom right, rgba(246, 196, 83, 0.12), transparent 32%),
+        var(--bg);
+      color: var(--text);
+      padding: 18px;
+    }
+
+    .wrap {
+      max-width: 760px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin: 14px 0 22px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 7vw, 46px);
+      letter-spacing: -1px;
+      line-height: 1.05;
+    }
+
+    .subtitle {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .updated {
+      margin: 14px auto 0;
+      display: inline-block;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(255,255,255,0.04);
+      font-size: 13px;
+    }
+
+    .podium {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .podium-card {
+      background: linear-gradient(135deg, rgba(255,255,255,0.09), rgba(255,255,255,0.03));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 14px 40px rgba(0,0,0,0.2);
+    }
+
+    .medal {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-size: 22px;
+      font-weight: 800;
+      color: #111;
+      flex: 0 0 auto;
+    }
+
+    .gold { background: var(--gold); }
+    .silver { background: var(--silver); }
+    .bronze { background: var(--bronze); color: #fff; }
+
+    .podium-name {
+      font-size: 19px;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    .podium-points {
+      color: var(--muted);
+      margin-top: 3px;
+    }
+
+    .leaderboard {
+      background: rgba(15,31,53,0.82);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 18px 60px rgba(0,0,0,0.25);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 58px 1fr 86px;
+      gap: 10px;
+      align-items: center;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .row:last-child {
+      border-bottom: none;
+    }
+
+    .row.header {
+      background: rgba(54,194,255,0.14);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .rank {
+      font-weight: 800;
+      color: var(--accent);
+    }
+
+    .name {
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+
+    .points {
+      text-align: right;
+      font-weight: 900;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .message {
+      text-align: center;
+      color: var(--muted);
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px;
+      margin-top: 20px;
+    }
+
+    .refresh {
+      margin: 18px auto 0;
+      display: block;
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 18px;
+      background: var(--accent);
+      color: #03101d;
+      font-weight: 800;
+      cursor: pointer;
+      font-size: 15px;
+    }
+
+    @media (min-width: 720px) {
+      .podium {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .podium-card {
+        flex-direction: column;
+        text-align: center;
+        min-height: 160px;
+        justify-content: center;
+      }
+
+      .podium-card.first {
+        transform: translateY(-8px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>World Cup Predictor</h1>
+      <div class="subtitle">Live Leaderboard</div>
+      <div class="updated" id="updated">Loading...</div>
+    </header>
+
+    <section class="podium" id="podium"></section>
+
+    <section class="leaderboard" id="leaderboard">
+      <div class="row header">
+        <div>Pos</div>
+        <div>Name</div>
+        <div>Points</div>
+      </div>
+    </section>
+
+    <button class="refresh" onclick="loadLeaderboard()">Refresh leaderboard</button>
+
+    <div class="message" id="message" style="display:none;"></div>
+  </div>
+
+  <script>
+    const CSV_URL = 'leaderboard.csv';
+
+    function parseCSV(text) {
+      const rows = [];
+      let row = [];
+      let value = '';
+      let insideQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        const next = text[i + 1];
+
+        if (char === '"' && insideQuotes && next === '"') {
+          value += '"';
+          i++;
+        } else if (char === '"') {
+          insideQuotes = !insideQuotes;
+        } else if (char === ',' && !insideQuotes) {
+          row.push(value);
+          value = '';
+        } else if ((char === '\n' || char === '\r') && !insideQuotes) {
+          if (char === '\r' && next === '\n') i++;
+          row.push(value);
+          if (row.some(cell => cell.trim() !== '')) rows.push(row);
+          row = [];
+          value = '';
+        } else {
+          value += char;
+        }
+      }
+
+      if (value.length || row.length) {
+        row.push(value);
+        if (row.some(cell => cell.trim() !== '')) rows.push(row);
+      }
+
+      return rows;
+    }
+
+    function normaliseLeaderboard(rows) {
+      if (!rows.length) return [];
+
+      const header = rows[0].map(h => h.trim().toLowerCase());
+      const positionIndex = header.indexOf('position');
+      const nameIndex = header.indexOf('name');
+      const pointsIndex = header.indexOf('points');
+
+      return rows.slice(1)
+        .map((r, i) => ({
+          position: positionIndex >= 0 ? r[positionIndex] : String(i + 1),
+          name: nameIndex >= 0 ? r[nameIndex] : r[0],
+          points: pointsIndex >= 0 ? r[pointsIndex] : r[1]
+        }))
+        .filter(p => p.name && p.name.trim() !== '' && p.name.trim() !== '0')
+        .map((p, i) => ({
+          position: p.position || String(i + 1),
+          name: p.name.trim(),
+          points: p.points ? p.points.trim() : '0'
+        }));
+    }
+
+    function renderPodium(players) {
+      const podium = document.getElementById('podium');
+      podium.innerHTML = '';
+
+      const classes = ['gold', 'silver', 'bronze'];
+      const labels = ['1', '2', '3'];
+
+      players.slice(0, 3).forEach((p, i) => {
+        const card = document.createElement('div');
+        card.className = 'podium-card' + (i === 0 ? ' first' : '');
+        card.innerHTML = `
+          <div class="medal ${classes[i]}">${labels[i]}</div>
+          <div>
+            <div class="podium-name">${escapeHtml(p.name)}</div>
+            <div class="podium-points">${escapeHtml(p.points)} pts</div>
+          </div>
+        `;
+        podium.appendChild(card);
+      });
+    }
+
+    function renderTable(players) {
+      const board = document.getElementById('leaderboard');
+      board.innerHTML = `
+        <div class="row header">
+          <div>Pos</div>
+          <div>Name</div>
+          <div>Points</div>
+        </div>
+      `;
+
+      players.forEach((p, i) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <div class="rank">${escapeHtml(p.position || String(i + 1))}</div>
+          <div class="name">${escapeHtml(p.name)}</div>
+          <div class="points">${escapeHtml(p.points)}</div>
+        `;
+        board.appendChild(row);
+      });
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    async function loadLeaderboard() {
+      const message = document.getElementById('message');
+      const updated = document.getElementById('updated');
+
+      message.style.display = 'none';
+      updated.textContent = 'Refreshing...';
+
+      try {
+        const response = await fetch(CSV_URL + '?t=' + Date.now(), { cache: 'no-store' });
+
+        if (!response.ok) {
+          throw new Error('Could not load leaderboard.csv');
+        }
+
+        const text = await response.text();
+        const rows = parseCSV(text);
+        const players = normaliseLeaderboard(rows);
+
+        if (!players.length) {
+          throw new Error('leaderboard.csv loaded, but no players were found.');
+        }
+
+        renderPodium(players);
+        renderTable(players);
+
+        const now = new Date();
+        updated.textContent = 'Last refreshed: ' + now.toLocaleString();
+
+      } catch (error) {
+        updated.textContent = 'Could not refresh';
+        message.style.display = 'block';
+        message.textContent = error.message;
+      }
+    }
+
+    loadLeaderboard();
+    setInterval(loadLeaderboard, 60000);
+  </script>
+</body>
+</html>
